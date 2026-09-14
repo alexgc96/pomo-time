@@ -323,6 +323,7 @@ func configView(m model) string {
 		{"old_session_days", fmt.Sprintf("%d", m.Config.OldSessionDays)},
 		{"cleanup_enabled", fmt.Sprintf("%v", m.Config.CleanupEnabled)},
 		{"csv_export_path", m.Config.CSVExportPath},
+		{"claude_enabled", fmt.Sprintf("%v", m.Config.ClaudeEnabled)},
 	}
 
 	var rows []string
@@ -345,7 +346,7 @@ func configView(m model) string {
 	}
 
 	editHint := "enter: edit"
-	if m.ConfigCursor == 1 {
+	if m.ConfigCursor == 1 || m.ConfigCursor == 3 {
 		editHint = "enter/space: toggle"
 	}
 	var hints string

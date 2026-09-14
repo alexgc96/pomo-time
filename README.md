@@ -93,7 +93,7 @@ pomo -s "Deep Work"    # start with a named session
 | Key     | Action                        |
 |---------|-------------------------------|
 | `enter` | Submit query                  |
-| `t`     | Clear conversation thread     |
+| `tab`   | Clear conversation thread     |
 | `esc`   | Close panel / cancel loading  |
 
 ### Done screen
@@ -150,7 +150,7 @@ CLI installed and authenticated.
 `[Working on: "<name>"]` automatically.
 
 **Conversation thread:** previous Q&A pairs from the current session are prepended
-as context on each new query (last 3 exchanges). Press `t` to clear the thread.
+as context on each new query (last 3 exchanges). Press `tab` to clear the thread.
 
 **Response length:** queries include `[non-interactive query from pomodoro app,
 keep response under 270 chars]` to keep answers readable in the panel.

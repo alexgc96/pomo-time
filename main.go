@@ -377,7 +377,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			// typing mode
 			switch k {
-			case "t":
+			case "tab":
 				m.ClaudeThread = nil
 			case "enter":
 				if strings.TrimSpace(m.ClaudeInput) != "" {
@@ -441,8 +441,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// c opens claude query panel during countdown (not when notes overlay is open)
-		if k == "c" && m.Screen == screenCountdown && !m.NotesOverlay {
+		// c opens claude query panel during countdown (not when notes overlay is open, not when disabled)
+		if k == "c" && m.Screen == screenCountdown && !m.NotesOverlay && m.Config.ClaudeEnabled {
 			m.ClaudeOpen = !m.ClaudeOpen
 			if m.ClaudeOpen {
 				// freeze current session type for DB logging
@@ -482,6 +482,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				elapsedMin = 1
 			}
 			fmt.Print("\a")
+			notifBody := "Finished early"
+			if m.SessionName != "" {
+				notifBody = m.SessionName
+			}
+			notify(sessType+" ended", notifBody)
 			if m.DB != nil {
 				s := Session{
 					Name:        m.SessionName,
@@ -518,10 +523,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.BackgroundTimer = false
 			m.NotesOverlay = false
 			m.SessionSummary = ""
-			m.SessionSummaryLoading = true
+			m.SessionSummaryLoading = false
 			m.Screen = screenDone
 			m.DoneChoice = 0
-			return m, runSessionSummary(m.SessionName, sessType, elapsedMin, m.PendingNote)
+			if m.Config.ClaudeEnabled {
+				m.SessionSummaryLoading = true
+				return m, runSessionSummary(m.SessionName, sessType, elapsedMin, m.PendingNote)
+			}
+			return m, nil
 		}
 
 		// pause key only on countdown — don't spawn a new tick chain, the global loop is always alive
@@ -829,6 +838,18 @@ func updateCountdown(msg tea.Msg, m model) (tea.Model, tea.Cmd) {
 		}
 		if m.Ticks == 0 {
 			fmt.Print("\a")
+			var notifType string
+			if m.RunID > 0 && m.CurrentInterval < len(m.TemplateIntervals) {
+				notifType = m.TemplateIntervals[m.CurrentInterval].Type
+			} else {
+				notifType = m.Options[m.ActiveChoiceIdx].Type
+			}
+			notifTitle := notifType + " complete"
+			notifBody := "Time's up"
+			if m.SessionName != "" {
+				notifBody = m.SessionName
+			}
+			notify(notifTitle, notifBody)
 			m.BackgroundTimer = false
 			if m.DB != nil {
 				var sessType string
@@ -870,21 +891,25 @@ func updateCountdown(msg tea.Msg, m model) (tea.Model, tea.Cmd) {
 			m.NewAchievements = newAch
 			m.WasEarlyFinish = false
 			m.SessionSummary = ""
-			m.SessionSummaryLoading = true
+			m.SessionSummaryLoading = false
 			m.Screen = screenDone
 			m.DoneChoice = 0
-			var st, sn, pn string
-			var sd int
-			if m.RunID > 0 && m.CurrentInterval < len(m.TemplateIntervals) {
-				st = m.TemplateIntervals[m.CurrentInterval].Type
-				sd = m.TemplateIntervals[m.CurrentInterval].DurationMin
-			} else {
-				st = m.Options[m.ActiveChoiceIdx].Type
-				sd = m.Options[m.ActiveChoiceIdx].Time
+			if m.Config.ClaudeEnabled {
+				var st, sn, pn string
+				var sd int
+				if m.RunID > 0 && m.CurrentInterval < len(m.TemplateIntervals) {
+					st = m.TemplateIntervals[m.CurrentInterval].Type
+					sd = m.TemplateIntervals[m.CurrentInterval].DurationMin
+				} else {
+					st = m.Options[m.ActiveChoiceIdx].Type
+					sd = m.Options[m.ActiveChoiceIdx].Time
+				}
+				sn = m.SessionName
+				pn = m.PendingNote
+				m.SessionSummaryLoading = true
+				return m, runSessionSummary(sn, st, sd, pn)
 			}
-			sn = m.SessionName
-			pn = m.PendingNote
-			return m, runSessionSummary(sn, st, sd, pn)
+			return m, nil
 		}
 		m.Ticks--
 		if m.RunID > 0 && m.CurrentInterval < len(m.TemplateIntervals) {
@@ -1526,7 +1551,7 @@ func countdownView(m model) string {
 		var content string
 		threadInfo := ""
 		if len(m.ClaudeThread) > 0 {
-			threadInfo = "  " + dimStyle.Render(fmt.Sprintf("· %d msg thread  t: clear", len(m.ClaudeThread)/2))
+			threadInfo = "  " + dimStyle.Render(fmt.Sprintf("· %d msg thread", len(m.ClaudeThread)/2))
 		}
 		if m.ClaudeLoading {
 			spinner := claudeSpinner[m.ClaudeFrame%len(claudeSpinner)]
@@ -1543,7 +1568,7 @@ func countdownView(m model) string {
 		} else {
 			content = headerStyle.Render("Ask Claude") + threadInfo + "\n\n" +
 				m.ClaudeInput + "▌\n\n" +
-				dimStyle.Render("enter: ask  •  t: clear thread  •  esc: cancel")
+				dimStyle.Render("enter: ask  •  tab: clear thread  •  esc: cancel")
 		}
 		claudePanel = "\n\n" + panelStyle.Width(innerW).Render(content)
 	}
@@ -1813,7 +1838,7 @@ func updateConfig(msg tea.Msg, m model) (tea.Model, tea.Cmd) {
 
 	switch k {
 	case "j", "down":
-		m.ConfigCursor = min(m.ConfigCursor+1, 2)
+		m.ConfigCursor = min(m.ConfigCursor+1, 3)
 	case "k", "up":
 		m.ConfigCursor = max(m.ConfigCursor-1, 0)
 	case "enter", " ":
@@ -1824,6 +1849,8 @@ func updateConfig(msg tea.Msg, m model) (tea.Model, tea.Cmd) {
 			m.Config.CleanupEnabled = !m.Config.CleanupEnabled
 		case 2:
 			m.ConfigEditing = true
+		case 3:
+			m.Config.ClaudeEnabled = !m.Config.ClaudeEnabled
 		}
 	case "s":
 		if v, err := strconv.Atoi(m.ConfigIntBuf); err == nil && v > 0 {

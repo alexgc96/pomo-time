@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"math"
+	"os/exec"
 	"strconv"
 	"strings"
 
@@ -10,6 +11,11 @@ import (
 	colorful "github.com/lucasb-eyer/go-colorful"
 	"github.com/muesli/termenv"
 )
+
+func notify(title, body string) {
+	script := fmt.Sprintf(`display notification %q with title %q`, body, title)
+	_ = exec.Command("osascript", "-e", script).Start()
+}
 
 // — existing helpers (unchanged) —
 
