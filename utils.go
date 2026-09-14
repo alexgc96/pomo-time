@@ -168,8 +168,20 @@ func completionMenuView(m model) string {
 		}
 	}
 
+	summaryLine := ""
+	if m.SessionSummaryLoading {
+		summaryLine = "\n" + dimStyle.Render("✦ summarising...")
+	} else if m.SessionSummary != "" {
+		summaryLine = "\n" + mutedStyle.Render("✦ "+m.SessionSummary)
+	}
+
+	achievementLines := ""
+	for _, a := range m.NewAchievements {
+		achievementLines += "\n" + accentStyle.Render("✨ Achievement unlocked: "+a)
+	}
+
 	hints := dimStyle.Render("m: add note  •  j/k: navigate  •  enter: select")
-	return panelStyle.Render(title + "\n\n" + strings.Join(rows, "\n") + "\n\n" + hints)
+	return panelStyle.Render(title + summaryLine + achievementLines + "\n\n" + strings.Join(rows, "\n") + "\n\n" + hints)
 }
 
 func notesView(m model) string {

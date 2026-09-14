@@ -1,4 +1,4 @@
-module codeanish.com/pomo
+module analogtrsh.com/pomo
 
 go 1.21.0
 

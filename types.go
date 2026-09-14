@@ -82,6 +82,27 @@ type model struct {
 	// compact mode
 	CompactMode bool
 
+	// claude query panel
+	ClaudeOpen        bool
+	ClaudeInput       string
+	ClaudeLoading     bool
+	ClaudeResponse    string
+	ClaudeFrame       int
+	ClaudeQueryID     int
+	ClaudeThread      []ClaudeMessage
+	ClaudeSessionType string // frozen at panel open for DB logging
+
+	// end-of-session summary
+	SessionSummary        string
+	SessionSummaryLoading bool
+
+	// achievements
+	Achievements     map[string]time.Time
+	NewAchievements  []string // shown on done screen, cleared on next nav
+
+	// early finish flag (for achievement check)
+	WasEarlyFinish bool
+
 	// home screen
 	HomeHeader string
 
@@ -132,6 +153,23 @@ type options struct {
 }
 
 type tickMsg struct{}
+type claudeTickMsg struct{}
+type claudeResponseMsg struct {
+	text        string
+	err         error
+	queryID     int
+	sessionType string
+	rawQuery    string
+}
+
+type claudeSummaryMsg struct {
+	text string
+}
+
+type ClaudeMessage struct {
+	Role    string // "user" or "assistant"
+	Content string
+}
 
 type figletMsg struct{ header string }
 

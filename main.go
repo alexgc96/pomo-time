@@ -13,12 +13,18 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/reflow/indent"
+	"github.com/muesli/reflow/wordwrap"
 )
+
+const version = "1.0.0"
 
 func main() {
 	var sessionName string
+	var showVersion bool
 	flag.StringVar(&sessionName, "s", "", "name this session (e.g. pomo -s \"Deep_Work\")")
 	flag.StringVar(&sessionName, "session", "", "name this session")
+	flag.BoolVar(&showVersion, "version", false, "print version and exit")
+	flag.BoolVar(&showVersion, "v", false, "print version and exit")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "pomo — a minimal pomodoro timer\n\n")
 		fmt.Fprintf(os.Stderr, "Usage:\n  pomo [flags]\n\n")
@@ -44,6 +50,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Config lives at ~/.pomo/config.json\n")
 	}
 	flag.Parse()
+
+	if showVersion {
+		fmt.Println("pomo", version)
+		os.Exit(0)
+	}
 
 	cfg := loadConfig()
 	db, err := initDB()
@@ -81,6 +92,7 @@ func main() {
 		TodayMinutes:  todayMins,
 		Streak:        streak,
 		Screen:        startScreen,
+		Achievements:  loadAchievements(),
 	}
 	p := tea.NewProgram(initialModel, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
@@ -125,6 +137,80 @@ func tick() tea.Cmd {
 	})
 }
 
+var claudeSpinner = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+var claudeThoughts = []string{
+	"thinkin bout it",
+	"hmm...",
+	"consulting the void",
+	"big thoughts incoming",
+	"one sec",
+	"let me cook",
+	"almost got it",
+	"neurons firing",
+}
+
+func claudeTick() tea.Cmd {
+	return tea.Tick(720*time.Millisecond, func(time.Time) tea.Msg {
+		return claudeTickMsg{}
+	})
+}
+
+func runClaudeQuery(input, sessionName, sessionType string, thread []ClaudeMessage, id int) tea.Cmd {
+	return func() tea.Msg {
+		// build thread context from last 3 exchanges (6 messages)
+		var ctx string
+		if len(thread) > 0 {
+			start := 0
+			if len(thread) > 6 {
+				start = len(thread) - 6
+			}
+			ctx = "[Session conversation so far:\n"
+			for _, msg := range thread[start:] {
+				role := "Q"
+				if msg.Role == "assistant" {
+					role = "A"
+				}
+				ctx += role + ": " + msg.Content + "\n"
+			}
+			ctx += "]\n\n"
+		}
+		query := ctx + input
+		if sessionName != "" {
+			query = fmt.Sprintf("[Working on: \"%s\"] ", sessionName) + query
+		}
+		query += " [non-interactive query from pomodoro app, keep response under 270 chars]"
+		out, err := exec.Command("claude", "-p", query).Output()
+		if err != nil {
+			return claudeResponseMsg{err: err, queryID: id, sessionType: sessionType, rawQuery: input}
+		}
+		return claudeResponseMsg{
+			text:        strings.TrimSpace(string(out)),
+			queryID:     id,
+			sessionType: sessionType,
+			rawQuery:    input,
+		}
+	}
+}
+
+func runSessionSummary(sessionName, sessionType string, durationMin int, notes string) tea.Cmd {
+	return func() tea.Msg {
+		parts := fmt.Sprintf("type: %s, duration: %dmin", sessionType, durationMin)
+		if sessionName != "" {
+			parts = "name: " + sessionName + ", " + parts
+		}
+		if notes != "" {
+			parts += ", notes: " + notes
+		}
+		prompt := "One punchy sentence summarising this work session — " + parts +
+			" [non-interactive, max 120 chars, no quotes, no leading 'You']"
+		out, err := exec.Command("claude", "-p", prompt).Output()
+		if err != nil {
+			return claudeSummaryMsg{}
+		}
+		return claudeSummaryMsg{text: strings.TrimSpace(string(out))}
+	}
+}
+
 func (m model) Init() tea.Cmd {
 	cmds := []tea.Cmd{tick(), computeHomeHeaderCmd(m.Width)}
 	if m.SessionName != "" {
@@ -143,6 +229,42 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// home screen header
 	if msg, ok := msg.(homeHeaderMsg); ok {
 		m.HomeHeader = msg.header
+		return m, nil
+	}
+
+	// claude query response arrives asynchronously
+	if msg, ok := msg.(claudeResponseMsg); ok {
+		if msg.queryID == m.ClaudeQueryID {
+			m.ClaudeLoading = false
+			if msg.err != nil {
+				m.ClaudeResponse = "✗ " + msg.err.Error()
+			} else {
+				m.ClaudeResponse = msg.text
+				// persist to DB
+				saveClaudeQuery(m.DB, m.SessionName, m.ClaudeSessionType, msg.rawQuery, msg.text)
+				// append to conversation thread
+				m.ClaudeThread = append(m.ClaudeThread,
+					ClaudeMessage{"user", msg.rawQuery},
+					ClaudeMessage{"assistant", msg.text},
+				)
+			}
+		}
+		return m, nil
+	}
+
+	// end-of-session summary arrives asynchronously
+	if msg, ok := msg.(claudeSummaryMsg); ok {
+		m.SessionSummaryLoading = false
+		m.SessionSummary = msg.text
+		return m, nil
+	}
+
+	// fast tick drives the loading animation
+	if _, ok := msg.(claudeTickMsg); ok {
+		if m.ClaudeLoading {
+			m.ClaudeFrame++
+			return m, claudeTick()
+		}
 		return m, nil
 	}
 
@@ -234,6 +356,58 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// claude panel intercepts all keys when open
+		if m.ClaudeOpen {
+			if m.ClaudeLoading {
+				if k == "esc" || k == "ctrl+c" {
+					m.ClaudeQueryID++ // invalidate in-flight response
+					m.ClaudeLoading = false
+					m.ClaudeOpen = false
+					m.ClaudeInput = ""
+					m.ClaudeResponse = ""
+					return m, tea.ClearScreen
+				}
+				return m, nil
+			}
+			if m.ClaudeResponse != "" {
+				m.ClaudeOpen = false
+				m.ClaudeResponse = ""
+				m.ClaudeInput = ""
+				return m, tea.ClearScreen
+			}
+			// typing mode
+			switch k {
+			case "t":
+				m.ClaudeThread = nil
+			case "enter":
+				if strings.TrimSpace(m.ClaudeInput) != "" {
+					m.ClaudeLoading = true
+					m.ClaudeFrame = 0
+					m.ClaudeQueryID++
+					return m, tea.Batch(
+						runClaudeQuery(m.ClaudeInput, m.SessionName, m.ClaudeSessionType, m.ClaudeThread, m.ClaudeQueryID),
+						claudeTick(),
+					)
+				}
+			case "esc":
+				m.ClaudeOpen = false
+				m.ClaudeInput = ""
+				return m, tea.ClearScreen
+			case "backspace":
+				runes := []rune(m.ClaudeInput)
+				if len(runes) > 0 {
+					m.ClaudeInput = string(runes[:len(runes)-1])
+				}
+			case " ":
+				m.ClaudeInput += " "
+			default:
+				if msg.Type == tea.KeyRunes {
+					m.ClaudeInput += string(msg.Runes)
+				}
+			}
+			return m, nil
+		}
+
 		// q quits everywhere except text-input screens
 		if k == "q" && m.Screen != screenNotes && m.Screen != screenTemplateEditor && m.Screen != screenIntervalEditor {
 			m.Quitting = true
@@ -259,11 +433,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// m opens notes overlay during countdown
-		if k == "m" && m.Screen == screenCountdown {
+		// m opens notes overlay during countdown (not when claude panel is open)
+		if k == "m" && m.Screen == screenCountdown && !m.ClaudeOpen {
 			m.NotesOverlay = true
 			m.NotesOverlayBuf = m.PendingNote
 			m.NotesOverlayDiscard = false
+			return m, nil
+		}
+
+		// c opens claude query panel during countdown (not when notes overlay is open)
+		if k == "c" && m.Screen == screenCountdown && !m.NotesOverlay {
+			m.ClaudeOpen = !m.ClaudeOpen
+			if m.ClaudeOpen {
+				// freeze current session type for DB logging
+				if m.RunID > 0 && m.CurrentInterval < len(m.TemplateIntervals) {
+					m.ClaudeSessionType = m.TemplateIntervals[m.CurrentInterval].Type
+				} else {
+					m.ClaudeSessionType = m.Options[m.ActiveChoiceIdx].Type
+				}
+			} else {
+				m.ClaudeResponse = ""
+				m.ClaudeInput = ""
+			}
 			return m, nil
 		}
 
@@ -317,14 +508,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.Streak = streak
 				}
 			}
+			newAch, updatedAch := checkAchievements(m.DB, m.Achievements, m.Streak, m.TodayMinutes, true)
+			m.Achievements = updatedAch
+			m.NewAchievements = newAch
+			m.WasEarlyFinish = true
 			m.Ticks = 0
 			m.Progress = 1
 			m.Paused = false
 			m.BackgroundTimer = false
 			m.NotesOverlay = false
+			m.SessionSummary = ""
+			m.SessionSummaryLoading = true
 			m.Screen = screenDone
 			m.DoneChoice = 0
-			return m, nil
+			return m, runSessionSummary(m.SessionName, sessType, elapsedMin, m.PendingNote)
 		}
 
 		// pause key only on countdown — don't spawn a new tick chain, the global loop is always alive
@@ -573,6 +770,9 @@ func updateQuick(msg tea.Msg, m model) (tea.Model, tea.Cmd) {
 			m.TemplateIntervals = nil
 			m.ActiveChoiceIdx = m.Choice
 			m.LastSessionDuration = 0
+			m.ClaudeThread = nil
+			m.NewAchievements = nil
+			m.SessionSummary = ""
 			m.Ticks = m.Options[m.Choice].Time * 60
 			m.StartedAt = time.Now()
 			if m.DB != nil {
@@ -617,6 +817,7 @@ func updateCountdown(msg tea.Msg, m model) (tea.Model, tea.Cmd) {
 		if k == "backspace" {
 			m.BackgroundTimer = true
 			m.NotesOverlay = false
+			m.ClaudeOpen = false
 			m.Screen = screenHome
 			m.Choice = 0
 			return m, nil
@@ -664,9 +865,26 @@ func updateCountdown(msg tea.Msg, m model) (tea.Model, tea.Cmd) {
 					m.Streak = streak
 				}
 			}
+			newAch, updatedAch := checkAchievements(m.DB, m.Achievements, m.Streak, m.TodayMinutes, false)
+			m.Achievements = updatedAch
+			m.NewAchievements = newAch
+			m.WasEarlyFinish = false
+			m.SessionSummary = ""
+			m.SessionSummaryLoading = true
 			m.Screen = screenDone
 			m.DoneChoice = 0
-			return m, nil
+			var st, sn, pn string
+			var sd int
+			if m.RunID > 0 && m.CurrentInterval < len(m.TemplateIntervals) {
+				st = m.TemplateIntervals[m.CurrentInterval].Type
+				sd = m.TemplateIntervals[m.CurrentInterval].DurationMin
+			} else {
+				st = m.Options[m.ActiveChoiceIdx].Type
+				sd = m.Options[m.ActiveChoiceIdx].Time
+			}
+			sn = m.SessionName
+			pn = m.PendingNote
+			return m, runSessionSummary(sn, st, sd, pn)
 		}
 		m.Ticks--
 		if m.RunID > 0 && m.CurrentInterval < len(m.TemplateIntervals) {
@@ -1296,16 +1514,50 @@ func countdownView(m model) string {
 		)
 	}
 
+	claudePanel := ""
+	if m.ClaudeOpen {
+		innerW := m.Width - 10
+		if innerW < 50 {
+			innerW = 50
+		}
+		if innerW > 90 {
+			innerW = 90
+		}
+		var content string
+		threadInfo := ""
+		if len(m.ClaudeThread) > 0 {
+			threadInfo = "  " + dimStyle.Render(fmt.Sprintf("· %d msg thread  t: clear", len(m.ClaudeThread)/2))
+		}
+		if m.ClaudeLoading {
+			spinner := claudeSpinner[m.ClaudeFrame%len(claudeSpinner)]
+			thought := claudeThoughts[(m.ClaudeFrame/3)%len(claudeThoughts)]
+			loadLine := accentStyle.Render(spinner) + "  " + mutedStyle.Render(thought)
+			content = headerStyle.Render("Ask Claude") + threadInfo + "\n\n" +
+				accentStyle.Render("> ") + dimStyle.Render(m.ClaudeInput) + "\n\n" +
+				loadLine
+		} else if m.ClaudeResponse != "" {
+			wrapped := wordwrap.String(m.ClaudeResponse, innerW-4)
+			content = headerStyle.Render("Claude") + threadInfo + "\n\n" +
+				wrapped + "\n\n" +
+				dimStyle.Render("any key: dismiss  •  c: follow-up")
+		} else {
+			content = headerStyle.Render("Ask Claude") + threadInfo + "\n\n" +
+				m.ClaudeInput + "▌\n\n" +
+				dimStyle.Render("enter: ask  •  t: clear thread  •  esc: cancel")
+		}
+		claudePanel = "\n\n" + panelStyle.Width(innerW).Render(content)
+	}
+
 	backHint := subtle("backspace") + dimStyle.Render(": background")
 	hints := "\n" + subtle("p")+dimStyle.Render(": pause") + dot +
 		subtle("f")+dimStyle.Render(": finish early") + dot +
+		subtle("c")+dimStyle.Render(": ask claude") + dot +
 		subtle("m")+dimStyle.Render(": note") + dot +
-		subtle("n")+dimStyle.Render(": rename") + dot +
 		subtle("z")+dimStyle.Render(": compact") + dot +
 		backHint + dot +
 		subtle("q")+dimStyle.Render(": quit")
 
-	return label + "\n" + timeLeft + bar + pauseIndicator + notePreview + notesOverlayPanel + dash + hints
+	return label + "\n" + timeLeft + bar + pauseIndicator + notePreview + notesOverlayPanel + claudePanel + dash + hints
 }
 
 func compactCountdownView(m model) string {
@@ -1361,6 +1613,23 @@ func compactCountdownView(m model) string {
 				m.NotesOverlayBuf + "▌\n\n" + overlayHint,
 		)
 		return centered + "\n" + indent.String(overlay, 2) + "\n"
+	}
+
+	if m.ClaudeOpen {
+		var content string
+		if m.ClaudeLoading {
+			spinner := claudeSpinner[m.ClaudeFrame%len(claudeSpinner)]
+			thought := claudeThoughts[(m.ClaudeFrame/3)%len(claudeThoughts)]
+			content = headerStyle.Render("Ask Claude") + "\n\n" +
+				accentStyle.Render(spinner) + "  " + mutedStyle.Render(thought)
+		} else if m.ClaudeResponse != "" {
+			wrapped := wordwrap.String(m.ClaudeResponse, 60)
+			content = headerStyle.Render("Claude") + "\n\n" + wrapped + "\n\n" + dimStyle.Render("any key: dismiss")
+		} else {
+			content = headerStyle.Render("Ask Claude") + "\n\n" +
+				m.ClaudeInput + "▌\n\n" + dimStyle.Render("enter: ask  •  esc: cancel")
+		}
+		return centered + "\n" + indent.String(panelStyle.Render(content), 2) + "\n"
 	}
 
 	return centered

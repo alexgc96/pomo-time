@@ -75,6 +75,18 @@ func initDB() (*sql.DB, error) {
 		return nil, err
 	}
 
+	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS claude_queries (
+		id           INTEGER PRIMARY KEY AUTOINCREMENT,
+		asked_at     TEXT NOT NULL,
+		session_name TEXT,
+		session_type TEXT,
+		query        TEXT NOT NULL,
+		response     TEXT
+	)`)
+	if err != nil {
+		return nil, err
+	}
+
 	// additive column migrations
 	if err := ensureColumn(db, "sessions", "run_id", "INTEGER"); err != nil {
 		return nil, err
@@ -382,6 +394,17 @@ func exportToCSV(db *sql.DB, rawPath string, days int) (string, error) {
 	}
 	w.Flush()
 	return path, w.Error()
+}
+
+func saveClaudeQuery(db *sql.DB, sessionName, sessionType, query, response string) {
+	if db == nil {
+		return
+	}
+	_, _ = db.Exec(
+		`INSERT INTO claude_queries (asked_at, session_name, session_type, query, response)
+		 VALUES (?, ?, ?, ?, ?)`,
+		time.Now().Format(dbTimeFormat), sessionName, sessionType, query, response,
+	)
 }
 
 func deleteSessionByID(db *sql.DB, id int64) error {
