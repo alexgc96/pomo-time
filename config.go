@@ -7,18 +7,20 @@ import (
 )
 
 type Config struct {
-	OldSessionDays int    `json:"old_session_days"`
-	CleanupEnabled bool   `json:"cleanup_enabled"`
-	CSVExportPath  string `json:"csv_export_path"`
-	ClaudeEnabled  bool   `json:"claude_enabled"`
+	OldSessionDays       int    `json:"old_session_days"`
+	CleanupEnabled       bool   `json:"cleanup_enabled"`
+	CSVExportPath        string `json:"csv_export_path"`
+	ClaudeEnabled        bool   `json:"claude_enabled"`
+	ClaudeSummaries      bool   `json:"claude_summaries"`
 }
 
 func defaultConfig() Config {
 	return Config{
-		OldSessionDays: 7,
-		CleanupEnabled: true,
-		CSVExportPath:  "~/Desktop/pomo-export.csv",
-		ClaudeEnabled:  true,
+		OldSessionDays:  7,
+		CleanupEnabled:  true,
+		CSVExportPath:   "~/Desktop/pomo-export.csv",
+		ClaudeEnabled:   true,
+		ClaudeSummaries: true,
 	}
 }
 

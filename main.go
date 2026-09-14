@@ -526,7 +526,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.SessionSummaryLoading = false
 			m.Screen = screenDone
 			m.DoneChoice = 0
-			if m.Config.ClaudeEnabled {
+			if m.Config.ClaudeEnabled && m.Config.ClaudeSummaries {
 				m.SessionSummaryLoading = true
 				return m, runSessionSummary(m.SessionName, sessType, elapsedMin, m.PendingNote)
 			}
@@ -894,7 +894,7 @@ func updateCountdown(msg tea.Msg, m model) (tea.Model, tea.Cmd) {
 			m.SessionSummaryLoading = false
 			m.Screen = screenDone
 			m.DoneChoice = 0
-			if m.Config.ClaudeEnabled {
+			if m.Config.ClaudeEnabled && m.Config.ClaudeSummaries {
 				var st, sn, pn string
 				var sd int
 				if m.RunID > 0 && m.CurrentInterval < len(m.TemplateIntervals) {
@@ -1838,7 +1838,7 @@ func updateConfig(msg tea.Msg, m model) (tea.Model, tea.Cmd) {
 
 	switch k {
 	case "j", "down":
-		m.ConfigCursor = min(m.ConfigCursor+1, 3)
+		m.ConfigCursor = min(m.ConfigCursor+1, 4)
 	case "k", "up":
 		m.ConfigCursor = max(m.ConfigCursor-1, 0)
 	case "enter", " ":
@@ -1851,6 +1851,8 @@ func updateConfig(msg tea.Msg, m model) (tea.Model, tea.Cmd) {
 			m.ConfigEditing = true
 		case 3:
 			m.Config.ClaudeEnabled = !m.Config.ClaudeEnabled
+		case 4:
+			m.Config.ClaudeSummaries = !m.Config.ClaudeSummaries
 		}
 	case "s":
 		if v, err := strconv.Atoi(m.ConfigIntBuf); err == nil && v > 0 {
