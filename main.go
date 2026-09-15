@@ -179,7 +179,7 @@ func runClaudeQuery(input, sessionName, sessionType string, thread []ClaudeMessa
 			query = fmt.Sprintf("[Working on: \"%s\"] ", sessionName) + query
 		}
 		query += " [non-interactive query from pomodoro app, keep response under 270 chars]"
-		out, err := exec.Command("claude", "-p", query).Output()
+		out, err := exec.Command("claude", "--mcp-config", `{"mcpServers":{}}`, "--strict-mcp-config", "-p", query).Output()
 		if err != nil {
 			return claudeResponseMsg{err: err, queryID: id, sessionType: sessionType, rawQuery: input}
 		}
@@ -203,7 +203,7 @@ func runSessionSummary(sessionName, sessionType string, durationMin int, notes s
 		}
 		prompt := "One punchy sentence summarising this work session — " + parts +
 			" [non-interactive, max 120 chars, no quotes, no leading 'You']"
-		out, err := exec.Command("claude", "-p", prompt).Output()
+		out, err := exec.Command("claude", "--mcp-config", `{"mcpServers":{}}`, "--strict-mcp-config", "-p", prompt).Output()
 		if err != nil {
 			return claudeSummaryMsg{}
 		}
