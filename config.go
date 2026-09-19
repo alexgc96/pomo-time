@@ -19,8 +19,8 @@ func defaultConfig() Config {
 		OldSessionDays:  7,
 		CleanupEnabled:  true,
 		CSVExportPath:   "~/Desktop/pomo-export.csv",
-		ClaudeEnabled:   true,
-		ClaudeSummaries: true,
+		ClaudeEnabled:   false,
+		ClaudeSummaries: false,
 	}
 }
 
