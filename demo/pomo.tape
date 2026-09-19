@@ -1,8 +1,8 @@
 Output demo/demo.gif
 
 Set FontSize 20
-Set Width 1200
-Set Height 700
+Set Width 1400
+Set Height 800
 Set PlaybackSpeed 1.0
 Set TypingSpeed 0.05s
 Set CursorBlink false
@@ -43,14 +43,8 @@ Sleep 2s
 Type "m"
 Sleep 0.5s
 Type "working on goreleaser setup"
-Escape
+Ctrl+S
 Sleep 2s
-
-# Toggle compact mode
-Type "z"
-Sleep 2s
-Type "z"
-Sleep 1s
 
 # Finish early
 Type "f"
@@ -58,6 +52,9 @@ Sleep 2s
 
 # Done screen — navigate to "New session"
 Sleep 1s
+Type "j"
+Type "j"
+Type "j"
 Enter
 Sleep 2s
 
@@ -76,7 +73,6 @@ Sleep 1s
 # Navigate to From template
 Type "j"
 Sleep 0.5s
-Type "j"
 Enter
 Sleep 2s
 

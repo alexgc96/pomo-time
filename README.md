@@ -29,6 +29,8 @@ Forked from [codeanish/pomo](https://github.com/codeanish/pomo-cli), because of 
   logged as the actual duration (minimum 1 min)
 - **CSV export** — export sessions by date range; auto-numbered to avoid overwriting
 
+![pomo-time demo](demo/demo.gif)
+
 ---
 
 ## Install
