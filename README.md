@@ -4,7 +4,7 @@
 
 A terminal pomodoro timer built with Bubbletea. Keyboard-driven, no config required to start.
 
-Forked from [codeanish/pomo](https://github.com/codeanish/pomo).
+Forked from [codeanish/pomo](https://github.com/codeanish/pomo-cli), because of its cool loading bar.
 
 ---
 
