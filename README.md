@@ -35,17 +35,28 @@ Forked from [codeanish/pomo](https://github.com/codeanish/pomo-cli), because of 
 
 ## Install
 
-Requires CGO (for sqlite3).
+Download the latest release for your Mac from the [releases page](https://github.com/alexgc96/pomo-time/releases/latest):
+
+| Apple Silicon | Intel |
+|---|---|
+| `pomo-time_Darwin_arm64.tar.gz` | `pomo-time_Darwin_x86_64.tar.gz` |
 
 ```bash
-CGO_ENABLED=1 go build -o pomo-tui .
-sudo cp pomo-tui /usr/local/bin/pomo
+tar -xzf pomo-time_Darwin_*.tar.gz
+sudo mv pomo-time /usr/local/bin/pomo
 ```
 
 Optional: install `figlet` for the animated header (falls back gracefully without it).
 
 ```bash
 sudo port install figlet   # macOS MacPorts
+```
+
+**Build from source** (requires CGO for sqlite3):
+
+```bash
+CGO_ENABLED=1 go build -o pomo .
+sudo mv pomo /usr/local/bin/pomo
 ```
 
 Launch:
